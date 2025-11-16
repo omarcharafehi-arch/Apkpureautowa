@@ -1,34 +1,39 @@
-name: Run WhatsApp Bot
+
+name: WhatsApp APK Bot
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.11
-
-      - name: Install Node deps
-        run: npm install
-
-      - name: Install Python deps
-        run: pip install -r requirements.txt
-
-      - name: Start Bot
-        run: node bot.js
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Node.js dependencies
+      run: npm install
+    
+    - name: Install Python dependencies
+      run: pip install -r requirements.txt
+    
+    - name: Run WhatsApp Bot
+      env:
+        PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
+      run: node bot.js
+      timeout-minutes: 1440
