@@ -31,4 +31,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Start Bot
-        run: node index.js
+        run: node bot.js
