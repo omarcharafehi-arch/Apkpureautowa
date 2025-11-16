@@ -48,14 +48,19 @@ async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const { version, isLatest } = await fetchLatestBaileysVersion();
 
+    // Cleanup old socket listeners if they exist
+    if (sock && sock.ev) {
+        sock.ev.removeAllListeners();
+    }
+
     sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
-        browser: ['Bot APK', 'Chrome', '1.0.0'],
+        browser: ['Windows', 'Chrome', '1.0.0'],
         connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 10000, // فحص كل 10 ثواني لضمان الاستقرار
+        keepAliveIntervalMs: 10000,
         defaultQueryTimeoutMs: 60000,
         retryRequestDelayMs: 250,
         maxMsgRetryCount: 5,
@@ -95,8 +100,16 @@ async function connectToWhatsApp() {
                 log.error('تم تسجيل الخروج');
                 process.exit(0);
             } else {
+                // Cap reconnect attempts at 10 to prevent infinite loops
+                if (reconnectAttempts >= 10) {
+                    log.error('فشلت محاولات الإعادة المتعددة - توقف الاتصال');
+                    isReconnecting = false;
+                    setTimeout(() => connectToWhatsApp(), 30000); // Try again after 30s
+                    return;
+                }
+                
                 reconnectAttempts++;
-                const delay = Math.min(reconnectAttempts * 3000, 15000); // تزيد التأخير تدريجياً
+                const delay = Math.min(reconnectAttempts * 3000, 15000);
                 log.warn(`انقطاع الاتصال (${reconnectAttempts}) - إعادة بعد ${delay/1000}ث...`);
                 
                 setTimeout(() => {
@@ -107,7 +120,7 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             isConnected = true;
             isReconnecting = false;
-            reconnectAttempts = 0; // إعادة تعيين العداد عند النجاح
+            reconnectAttempts = 0;
             console.log('\n');
             log.success('✅ البوت متصل بنجاح');
             log.info(`👨‍💻 المطور: ${DEVELOPER_INFO.name}\n`);
@@ -205,10 +218,16 @@ async function connectToWhatsApp() {
                         log.warn(`ملف كبير: ${result.sizeMB} MB`);
                         
                         const filePath = path.join('downloads', result.filename);
+                        // Cleanup with error handling
                         if (fs.existsSync(filePath)) {
                             setTimeout(() => {
-                                if (fs.existsSync(filePath)) {
-                                    fs.unlinkSync(filePath);
+                                try {
+                                    if (fs.existsSync(filePath)) {
+                                        fs.unlinkSync(filePath);
+                                        log.info(`🗑️ تم حذف ${result.filename}`);
+                                    }
+                                } catch (err) {
+                                    log.warn(`فشل حذف الملف: ${result.filename}`);
                                 }
                             }, 5 * 1000);
                         }
@@ -300,11 +319,15 @@ async function connectToWhatsApp() {
 
                         log.success(`✅ تم إرسال ${result.filename}`);
 
-                        // حذف الملف بعد 5 ثوانٍ
+                        // حذف الملف بعد 5 ثوانٍ مع معالجة الأخطاء
                         setTimeout(() => {
-                            if (fs.existsSync(filePath)) {
-                                fs.unlinkSync(filePath);
-                                log.info(`🗑️ تم حذف ${result.filename} بعد 5 ثوانٍ`);
+                            try {
+                                if (fs.existsSync(filePath)) {
+                                    fs.unlinkSync(filePath);
+                                    log.info(`🗑️ تم حذف ${result.filename} بعد 5 ثوانٍ`);
+                                }
+                            } catch (err) {
+                                log.warn(`فشل حذف الملف: ${err.message}`);
                             }
                         }, 5 * 1000);
 
@@ -320,8 +343,13 @@ async function connectToWhatsApp() {
                         
                         if (fs.existsSync(filePath)) {
                             setTimeout(() => {
-                                if (fs.existsSync(filePath)) {
-                                    fs.unlinkSync(filePath);
+                                try {
+                                    if (fs.existsSync(filePath)) {
+                                        fs.unlinkSync(filePath);
+                                        log.info(`🗑️ تم حذف ${result.filename}`);
+                                    }
+                                } catch (err) {
+                                    log.warn(`فشل حذف الملف`);
                                 }
                             }, 5 * 1000);
                         }
@@ -363,6 +391,11 @@ async function getUserPhoneNumber() {
 
 function searchAndDownloadApp(appName) {
     return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            python.kill();
+            reject(new Error('Scraper timeout - took longer than 120 seconds'));
+        }, 120000); // 120 second timeout
+
         const python = spawn('python3', ['scraper.py', appName]);
         let dataString = '';
         let errorString = '';
@@ -376,6 +409,8 @@ function searchAndDownloadApp(appName) {
         });
 
         python.on('close', (code) => {
+            clearTimeout(timeout);
+            
             if (code !== 0) {
                 reject(new Error(errorString || 'Python script failed'));
                 return;
@@ -390,6 +425,7 @@ function searchAndDownloadApp(appName) {
         });
 
         python.on('error', (error) => {
+            clearTimeout(timeout);
             reject(error);
         });
     });
