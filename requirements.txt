@@ -1,0 +1,6 @@
+requests
+beautifulsoup4
+deep-translator
+beautifulsoup4
+deep-translator
+requests

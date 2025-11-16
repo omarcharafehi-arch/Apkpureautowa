@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-apk-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for downloading and sending APK files",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "keywords": ["whatsapp", "bot", "apk", "baileys"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.21",
+    "axios": "^1.13.2",
+    "pino": "^10.1.0"
+  }
+}
