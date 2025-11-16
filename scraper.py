@@ -7,24 +7,42 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import quote, urljoin
 import time
-from deep_translator import GoogleTranslator
 
 def log(message):
+    """طباعة رسائل السجل"""
     print(f"[SCRAPER] {message}", file=sys.stderr)
 
 def translate_to_english(text):
+    """ترجمة النص العربي للإنجليزية باستخدام Google Translate API المجاني"""
     try:
+        # فحص إذا كان النص يحتوي على أحرف عربية
         if re.search(r'[\u0600-\u06FF]', text):
-            translator = GoogleTranslator(source='ar', target='en')
-            translated = translator.translate(text)
-            log(f"Translated '{text}' to '{translated}'")
-            return translated
+            # استخدام Google Translate API المجاني
+            url = "https://translate.googleapis.com/translate_a/single"
+            params = {
+                'client': 'gtx',
+                'sl': 'ar',
+                'tl': 'en',
+                'dt': 't',
+                'q': text
+            }
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                translated = result[0][0][0]
+                log(f"Translated '{text}' to '{translated}'")
+                return translated
         return text
     except Exception as e:
         log(f"Translation failed: {str(e)}, using original text")
         return text
 
 def search_apkpure(app_name):
+    """البحث عن التطبيق في APKPure"""
     english_name = translate_to_english(app_name)
     search_url = f"https://apkpure.com/search?q={quote(english_name)}"
     
@@ -41,9 +59,9 @@ def search_apkpure(app_name):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        
         results = []
         
+        # محاولة إيجاد نتائج البحث بطرق مختلفة
         search_results = soup.find_all('div', class_='first')
         if not search_results:
             search_results = soup.find_all('a', class_='first-info')
@@ -67,6 +85,7 @@ def search_apkpure(app_name):
             if not app_url or 'apkpure.com' not in app_url:
                 continue
             
+            # الحصول على عنوان التطبيق
             app_title = link.get('title', '')
             if not app_title:
                 title_elem = item.find('p', class_='p1') or item.find('div', class_='title')
@@ -86,6 +105,7 @@ def search_apkpure(app_name):
         return []
 
 def get_app_info_and_download(app_url, app_title):
+    """الحصول على معلومات التطبيق وتحميله"""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -100,8 +120,8 @@ def get_app_info_and_download(app_url, app_title):
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
+        # الحصول على رابط الأيقونة
         icon_url = None
-        
         og_image = soup.find('meta', property='og:image')
         if og_image and og_image.get('content'):
             icon_url = og_image['content']
@@ -129,17 +149,20 @@ def get_app_info_and_download(app_url, app_title):
             if not icon_url.startswith('http'):
                 icon_url = urljoin('https://apkpure.com', icon_url)
         
+        # الحصول على الإصدار
         version = "Latest"
         version_elem = soup.find('span', class_='version') or soup.find('div', class_='ver')
         if version_elem:
             version_text = version_elem.get_text(strip=True)
             version = version_text.replace('Version:', '').strip()
         
+        # الحصول على اسم المطور
         developer = "Unknown"
         dev_elem = soup.find('a', itemprop='author') or soup.find('p', class_='author')
         if dev_elem:
             developer = dev_elem.get_text(strip=True)
         
+        # إيجاد رابط التحميل
         download_link = None
         download_selectors = [
             {'class_': 'download-btn'},
@@ -165,6 +188,7 @@ def get_app_info_and_download(app_url, app_title):
         
         download_soup = BeautifulSoup(download_page.text, 'html.parser')
         
+        # الحصول على رابط التحميل المباشر
         direct_download = None
         download_link_selectors = [
             {'id': 'download_link'},
@@ -188,10 +212,12 @@ def get_app_info_and_download(app_url, app_title):
         
         log(f"Download URL: {final_download_url}")
         
+        # تحميل الملف
         log("Downloading file...")
         response = requests.get(final_download_url, headers=headers, stream=True, timeout=300)
         response.raise_for_status()
         
+        # تحديد نوع الملف
         file_ext = '.apk'
         has_obb = False
         content_disp = response.headers.get('content-disposition', '')
@@ -201,16 +227,20 @@ def get_app_info_and_download(app_url, app_title):
         elif '.apks' in content_disp.lower() or '.apks' in final_download_url.lower():
             file_ext = '.apks'
         
+        # حساب حجم الملف
         total_size = int(response.headers.get('content-length', 0))
         size_mb = total_size / (1024 * 1024) if total_size > 0 else 0
         
+        # إنشاء اسم الملف
         safe_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', app_title)
         filename = f"{safe_filename}{file_ext}"
         
+        # إنشاء مجلد التحميلات
         downloads_dir = "downloads"
         if not os.path.exists(downloads_dir):
             os.makedirs(downloads_dir)
         
+        # حفظ الملف
         file_path = os.path.join(downloads_dir, filename)
         with open(file_path, 'wb') as f:
             downloaded = 0
@@ -241,10 +271,13 @@ def get_app_info_and_download(app_url, app_title):
         return None
 
 def download_app(app_name):
+    """البحث وتحميل التطبيق"""
     search_results = search_apkpure(app_name)
     
     if not search_results:
-        return {"error": f"لم يتم العثور على '{app_name}' في APKPure.\n\nجرب:\n• استخدام الاسم الكامل للتطبيق\n• التحقق من الإملاء\n• كن أكثر تحديداً"}
+        return {
+            "error": f"لم يتم العثور على '{app_name}' في APKPure.\n\nجرب:\n• استخدام الاسم الكامل للتطبيق\n• التحقق من الإملاء\n• كن أكثر تحديداً"
+        }
     
     for app_url, app_title in search_results:
         log(f"محاولة التحميل: {app_title}")
@@ -255,9 +288,12 @@ def download_app(app_name):
         else:
             log(f"فشل تحميل {app_title}, جاري المحاولة التالية...")
     
-    return {"error": f"تم العثور على تطبيقات تطابق '{app_name}' لكن فشل تحميلها.\n\nالتطبيقات قد لا تكون متاحة أو حدث خطأ في التحميل."}
+    return {
+        "error": f"تم العثور على تطبيقات تطابق '{app_name}' لكن فشل تحميلها.\n\nالتطبيقات قد لا تكون متاحة أو حدث خطأ في التحميل."
+    }
 
 def main():
+    """الدالة الرئيسية"""
     if len(sys.argv) < 2:
         result = {"error": "No app name provided"}
         print(json.dumps(result))
